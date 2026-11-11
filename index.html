@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dither de caracteres</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Nanum+Myeongjo&display=swap">
+<style>
+  /* Tokens do "Meu portfolio DS" (mesmos nomes de src/styles/global.css do site) */
+  :root {
+    --color-ac1:#0007dd; --color-ac2:#000368; --color-ac3:#e9f0f4; --color-ac2-hover:#000484;
+    --color-paper:#fafafa; --color-ink:#131313; --color-white:#fff;
+    --color-gray-a:#efefef; --color-gray-b:#e5e5e5; --color-gray-c:#b8b8b8; --color-gray-d:#6d6d6d; --color-gray-e:#484848;
+    --font-serif:"Nanum Myeongjo", Georgia, serif;
+    --font-sans:"Barlow", system-ui, sans-serif;
+    --font-mono:ui-monospace, Menlo, Consolas, monospace;
+    --radius:8px;
+  }
+  * { box-sizing:border-box; }
+  html { color-scheme:light; }
+  button, input, select, textarea { color:var(--color-ink); font-family:inherit; }
+  body { margin:0; font:15px/1.45 var(--font-sans); background:var(--color-gray-a); color:var(--color-ink); -webkit-font-smoothing:antialiased; }
+  :focus-visible { outline:3px solid var(--color-ac1); outline-offset:2px; }
+  /* no desktop a página não rola: só a barra de configurações tem scroll */
+  .app { display:grid; grid-template-columns:320px 1fr; height:100vh; height:100dvh; overflow:hidden; }
+  main { min-height:0; overflow:hidden; position:relative; touch-action:none; }
+  main.pannable { cursor:grab; }
+  main.panning { cursor:grabbing; }
+  .stage { transform-origin:center; will-change:transform; }
+  .zoombar { position:absolute; right:16px; bottom:16px; display:flex; background:var(--color-white); border:1px solid var(--color-gray-b); border-radius:var(--radius); box-shadow:0 4px 14px rgba(19,19,19,.1); overflow:hidden; }
+  .zoombar button { border:0; background:none; color:var(--color-ink); font:500 15px var(--font-sans); padding:7px 12px; cursor:pointer; min-width:38px; font-variant-numeric:tabular-nums; transition:background-color .2s ease-in, color .2s ease-in; }
+  .zoombar button:hover { background:var(--color-ac3); color:var(--color-ac1); }
+  .zoombar button + button { border-left:1px solid var(--color-gray-b); }
+  #zoomFit { min-width:62px; }
+  aside { background:var(--color-paper); border-right:1px solid var(--color-gray-b); padding:20px; overflow:auto; }
+  h1 { font:400 22px/1.2 var(--font-serif); margin:0 0 6px; color:var(--color-ac2); }
+  .sub { color:var(--color-gray-d); margin:0 0 18px; font-size:14px; }
+  .group { margin-bottom:16px; }
+  label { display:block; font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--color-gray-d); margin-bottom:6px; }
+  textarea { resize:vertical; font-family:var(--font-mono); font-size:15px; }
+  input[type=text], select, textarea { width:100%; padding:8px 10px; border:1px solid var(--color-gray-b); border-radius:var(--radius); font:inherit; background:var(--color-white); color:inherit; }
+  input[type=text] { font-family:var(--font-mono); font-size:15px; }
+  input[type=range] { width:100%; accent-color:var(--color-ac1); }
+  .row { display:flex; gap:10px; align-items:center; }
+  .row > * { flex:1; }
+  .val { flex:0 0 auto; min-width:34px; text-align:right; color:var(--color-gray-d); font-variant-numeric:tabular-nums; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip { border:1px solid var(--color-gray-b); background:var(--color-white); color:var(--color-ink); border-radius:999px; padding:3px 10px; cursor:pointer; font:15px var(--font-mono); transition:background-color .2s ease-in, color .2s ease-in, border-color .2s ease-in; }
+  .chip:hover { border-color:var(--color-ac1); color:var(--color-ac1); background:var(--color-ac3); }
+  .check { display:flex; gap:8px; align-items:center; font-size:15px; margin:6px 0; cursor:pointer; }
+  .check input { accent-color:var(--color-ac1); }
+  input[type=color] { width:100%; height:34px; padding:2px; border:1px solid var(--color-gray-b); border-radius:var(--radius); background:var(--color-white); }
+  button.main { width:100%; padding:10px; border:0; border-radius:var(--radius); background:var(--color-ac1); color:var(--color-white); font-size:15px; font-weight:600; cursor:pointer; transition:background-color .25s ease-in; }
+  button.main:hover { background:var(--color-ac2); }
+  button.alt { width:100%; padding:9px; border:1px solid var(--color-gray-b); border-radius:var(--radius); background:var(--color-white); color:var(--color-ink); font-size:15px; font-weight:500; cursor:pointer; margin-top:8px; transition:background-color .2s ease-in, color .2s ease-in, border-color .2s ease-in; }
+  button.alt:hover:not(:disabled) { background:var(--color-ac3); color:var(--color-ac1); border-color:var(--color-ac3); }
+  button:disabled { color:var(--color-gray-c); cursor:default; }
+  main { display:flex; align-items:center; justify-content:center; padding:24px; }
+  .stage { max-width:100%; max-height:calc(100vh - 48px); display:flex; }
+  canvas { max-width:100%; max-height:calc(100vh - 48px); box-shadow:0 8px 30px rgba(19,19,19,.16); border-radius:4px; background:var(--color-white); }
+  .drop { outline:3px dashed var(--color-ac1); outline-offset:-12px; }
+  .hint { color:var(--color-gray-d); font-size:13px; margin-top:8px; }
+  @media (max-width:760px){ .app{grid-template-columns:1fr; height:auto; overflow:visible;} aside{overflow:visible;} aside{border-right:0;border-bottom:1px solid var(--color-gray-b);} main{padding:12px;} canvas{max-height:none;} }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>Dither de caracteres</h1>
+    <p class="sub">Transforma uma imagem em dithering ordenado (Bayer) usando os caracteres que você escolher.</p>
+
+    <div class="group">
+      <button class="main" id="pick">Escolher imagem ou vídeo…</button>
+      <input type="file" id="file" accept="image/*,video/*" hidden>
+      <div class="hint">Ou arraste um arquivo para a página.</div>
+    </div>
+
+    <div class="group" id="g-video" hidden>
+      <label>Vídeo</label>
+      <button class="alt" id="play">Pausar</button>
+    </div>
+
+    <div class="group">
+      <label for="mode">Modo</label>
+      <select id="mode">
+        <option value="dither">Dithering (1 bit)</option>
+        <option value="ramp">Rampa de caracteres (ASCII)</option>
+      </select>
+    </div>
+
+    <div class="group" id="g-chars">
+      <label for="chars">Caracteres dos pontos</label>
+      <textarea id="chars" rows="2" placeholder="vazio = quadradinhos">+</textarea>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="group" id="g-order">
+      <label for="order">Ordem dos caracteres</label>
+      <select id="order">
+        <option value="pattern">Alternados</option>
+        <option value="random">Aleatórios</option>
+        <option value="text">Texto contínuo</option>
+      </select>
+      <div class="hint" id="orderHint" hidden>O texto flui pelos pontos acesos, da esquerda para a direita, linha a linha.</div>
+    </div>
+
+    <div class="group" id="g-ramp" hidden>
+      <label for="ramp">Rampa (escuro → claro)</label>
+      <input type="text" id="ramp" value=" .:-=+*#%@">
+    </div>
+
+    <div class="group">
+      <label for="cell">Tamanho da célula</label>
+      <div class="row"><input type="range" id="cell" min="3" max="40" value="8"><span class="val" id="cellV">8</span></div>
+    </div>
+    <div class="group">
+      <label for="contrast">Contraste</label>
+      <div class="row"><input type="range" id="contrast" min="0.3" max="3" step="0.05" value="1.2"><span class="val" id="contrastV">1.2</span></div>
+    </div>
+    <div class="group">
+      <label for="bright">Brilho</label>
+      <div class="row"><input type="range" id="bright" min="-0.5" max="0.5" step="0.01" value="0"><span class="val" id="brightV">0</span></div>
+    </div>
+    <div class="group" id="g-bayer">
+      <label for="bayer">Matriz de Bayer</label>
+      <select id="bayer"><option value="2">2×2</option><option value="4" selected>4×4</option><option value="8">8×8</option></select>
+    </div>
+    <div class="group">
+      <label for="font">Fonte</label>
+      <select id="font">
+        <option value="ui-monospace, Menlo, Consolas, monospace">Monoespaçada</option>
+        <option value="Barlow, system-ui, sans-serif">Barlow</option>
+        <option value="'Nanum Myeongjo', Georgia, serif">Nanum Myeongjo</option>
+        <option value="'Courier New', monospace">Courier New</option>
+        <option value="Georgia, serif">Georgia</option>
+        <option value="system-ui, sans-serif">Sans-serif</option>
+        <option value="Impact, sans-serif">Impact</option>
+      </select>
+    </div>
+    <div class="group">
+      <div class="row">
+        <div><label for="bg">Fundo</label><input type="color" id="bg" value="#0007dd"></div>
+        <div><label for="fg">Caracteres</label><input type="color" id="fg" value="#ffffff"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="colorize"> Cor da imagem original</label>
+      <label class="check"><input type="checkbox" id="invert"> Inverter claro/escuro</label>
+    </div>
+
+    <button class="alt" id="reset">Resetar configurações</button>
+    <div class="row">
+      <button class="alt" id="download">Baixar PNG</button>
+      <button class="alt" id="downloadSvg">Baixar SVG</button>
+    </div>
+    <button class="alt" id="downloadVideo" hidden>Baixar vídeo</button>
+    <div class="hint" id="videoHint" hidden>O vídeo inteiro é processado em tempo real (sem áudio). Mantenha a aba aberta e visível até o download começar.</div>
+  </aside>
+
+  <main>
+    <div class="stage" id="stage"><canvas id="out"></canvas></div>
+    <div class="zoombar" aria-label="Zoom">
+      <button id="zoomOut" title="Diminuir zoom (−)">−</button>
+      <button id="zoomFit" title="Ajustar à tela (0)">100%</button>
+      <button id="zoomIn" title="Aumentar zoom (+)">+</button>
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const out = $('out'), ctx = out.getContext('2d');
+const BG_SHADE = 0.3;   // brilho do fundo colorido em relação à cor original
+let img = null, scene = null, video = null, recorder = null;
+const small = document.createElement('canvas');
+const smallCtx = small.getContext('2d', { willReadFrequently: true });
+const MAX_W = 1000;
+
+// ---------- Matriz de Bayer ----------
+function bayer(n) {
+  if (n === 1) return [[0]];
+  const p = bayer(n / 2), m = [];
+  for (let y = 0; y < n; y++) { m[y] = [];
+    for (let x = 0; x < n; x++) {
+      const v = p[y % (n/2)][x % (n/2)] * 4;
+      const q = (y < n/2 ? (x < n/2 ? 0 : 2) : (x < n/2 ? 3 : 1));
+      m[y][x] = v + q;
+    }
+  }
+  return m;
+}
+
+// ---------- Imagem de demonstração (gerada) ----------
+function demoImage() {
+  const c = document.createElement('canvas'); c.width = 700; c.height = 900;
+  const g = c.getContext('2d');
+  g.fillStyle = '#111'; g.fillRect(0,0,700,900);
+  let r = g.createRadialGradient(350,330,20,350,330,260);
+  r.addColorStop(0,'#fff'); r.addColorStop(.6,'#999'); r.addColorStop(1,'#222');
+  g.fillStyle = r; g.beginPath(); g.arc(350,330,260,0,Math.PI*2); g.fill();
+  r = g.createLinearGradient(0,600,700,900);
+  r.addColorStop(0,'#000'); r.addColorStop(1,'#eee');
+  g.fillStyle = r; g.beginPath(); g.ellipse(350,820,420,170,0,0,Math.PI*2); g.fill();
+  g.fillStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.arc(430,280,90,0,Math.PI*2); g.fill();
+  return c;
+}
+
+// ---------- Render ----------
+function render() {
+  if (!img) return;
+  const iw = img.videoWidth || img.naturalWidth || img.width, ih = img.videoHeight || img.naturalHeight || img.height;
+  if (!iw || !ih) return;   // vídeo ainda sem dimensões
+  const W = Math.min(MAX_W, iw), H = Math.round(W * ih / iw);
+  if (out.width !== W || out.height !== H) { out.width = W; out.height = H; }
+
+  const cell = +$('cell').value;
+  const cols = Math.ceil(W / cell), rows = Math.ceil(H / cell);
+
+  // reduz para a grade (média por célula); o canvas auxiliar é reaproveitado entre quadros
+  const s = small; if (s.width !== cols || s.height !== rows) { s.width = cols; s.height = rows; }
+  const sc = smallCtx;
+  sc.imageSmoothingEnabled = true; sc.imageSmoothingQuality = 'high';
+  sc.drawImage(img, 0, 0, cols, rows);
+  const data = sc.getImageData(0, 0, cols, rows).data;
+
+  const bg = $('bg').value, fg = $('fg').value, font = $('font').value;
+  const fontSize = Math.round(cell * 1.1);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = fg;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `${fontSize}px ${font}`;
+
+  const contrast = +$('contrast').value, shift = +$('bright').value, inv = $('invert').checked;
+  const mode = $('mode').value, order = $('order').value, colorize = $('colorize').checked;
+  // Array.from respeita emojis e símbolos; quebras de linha viram espaço
+  const chars = Array.from($('chars').value.replace(/\s*\n\s*/g, ' '));
+  const ramp = Array.from($('ramp').value);
+  const bn = +$('bayer').value, B = bayer(bn), bmax = bn * bn;
+
+  // gerador pseudoaleatório fixo (a imagem não "pisca" ao mexer nos controles)
+  let seed = 42; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  let textPos = 0;
+
+  // cena guardada para a exportação em SVG
+  scene = { W, H, bg, fg, font, fontSize, items: [] };
+  const hex = (r, g, b) => '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    const i = (y * cols + x) * 4;
+    let b = (0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]) / 255;
+    b = Math.min(1, Math.max(0, (b - 0.5) * contrast + 0.5 + shift));
+    if (inv) b = 1 - b;
+    const px = x * cell + cell / 2, py = y * cell + cell / 2 + cell * 0.04;
+    const color = colorize ? hex(data[i], data[i+1], data[i+2]) : fg;
+    if (colorize) {
+      // fundo da célula: a mesma cor da imagem, escurecida, para o caractere continuar legível
+      const k = BG_SHADE, cbg = hex(Math.round(data[i]*k), Math.round(data[i+1]*k), Math.round(data[i+2]*k));
+      ctx.fillStyle = cbg; ctx.fillRect(x*cell, y*cell, cell, cell);
+      scene.items.push({ rect: true, x: x*cell, y: y*cell, s: cell, color: cbg });
+      ctx.fillStyle = color;
+    }
+
+    if (mode === 'dither') {
+      const t = (B[y % bn][x % bn] + 0.5) / bmax;
+      if (b > t) {
+        if (!chars.length) {
+          const g = Math.max(1, Math.round(cell * 0.18));
+          ctx.fillRect(x*cell+g/2, y*cell+g/2, cell-g, cell-g);
+          scene.items.push({ rect: true, x: x*cell+g/2, y: y*cell+g/2, s: cell-g, color });
+        } else {
+          const c = order === 'text' ? chars[textPos++ % chars.length]
+                  : order === 'random' ? chars[Math.floor(rand() * chars.length)]
+                  : chars[(x + y) % chars.length];
+          if (c.trim()) { ctx.fillText(c, px, py); scene.items.push({ c, x: px, y: py, color }); }
+        }
+      }
+    } else if (ramp.length) {
+      const c = ramp[Math.min(ramp.length - 1, Math.floor(b * ramp.length))];
+      if (c.trim()) { ctx.fillText(c, px, py); scene.items.push({ c, x: px, y: py, color }); }
+    }
+  }
+}
+
+// ---------- SVG ----------
+function toSVG() {
+  const { W, H, bg, fg, font, fontSize, items } = scene;
+  const esc = s => s.replace(/[&<>"']/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m]));
+  const n = v => +v.toFixed(2);
+  const fill = c => c === fg ? '' : ` fill="${c}"`;
+  const body = items.map(it => it.rect
+    ? `<rect x="${n(it.x)}" y="${n(it.y)}" width="${n(it.s)}" height="${n(it.s)}"${fill(it.color)}/>`
+    : `<text x="${n(it.x)}" y="${n(it.y)}"${fill(it.color)}>${esc(it.c)}</text>`).join('\n');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<rect width="100%" height="100%" fill="${bg}"/>
+<g fill="${fg}" font-family="${esc(font)}" font-size="${fontSize}" text-anchor="middle" dominant-baseline="central">
+${body}
+</g>
+</svg>`;
+}
+
+// ---------- UI ----------
+function loadFile(f) {
+  if (!f) return;
+  const isVideo = f.type.startsWith('video/');
+  if (!isVideo && !f.type.startsWith('image/')) return;
+  if (recorder) recorder.stop();
+  if (video) { video.pause(); URL.revokeObjectURL(video.src); video = null; }
+  const url = URL.createObjectURL(f);
+  if (isVideo) {
+    const v = document.createElement('video');
+    v.muted = true; v.loop = true; v.playsInline = true; v.src = url;
+    v.onloadeddata = () => { video = img = v; showVideoUI(true); v.play(); tick(); render(); };
+    v.onplay = v.onpause = () => { $('play').textContent = v.paused ? 'Tocar' : 'Pausar'; };
+    return;
+  }
+  showVideoUI(false);
+  const im = new Image();
+  im.onload = () => { img = im; render(); };
+  im.src = url;
+}
+
+// ---------- Vídeo ----------
+// redesenha quando o vídeo avança (o <video> não está na página, então usamos requestAnimationFrame)
+function tick() {
+  const v = video; if (!v) return;
+  let last = -1;
+  const step = () => {
+    if (video !== v) return;
+    if (v.currentTime !== last) {
+      last = v.currentTime; render();
+      if (recorder) $('downloadVideo').textContent = `Processando… ${Math.min(99, Math.floor(v.currentTime / v.duration * 100))}%`;
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+$('play').onclick = () => { if (!video) return; video.paused ? video.play() : video.pause(); };
+function showVideoUI(on) {
+  $('g-video').hidden = !on; $('downloadVideo').hidden = !on; $('videoHint').hidden = !on;
+}
+
+// Baixar o vídeo inteiro processado: toca do início ao fim capturando o canvas
+function downloadVideo() {
+  if (recorder || !video) return;
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const type = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!type) { alert('Este navegador não consegue gerar vídeo.'); return; }
+  const v = video, chunks = [];
+  recorder = new MediaRecorder(out.captureStream(30), { mimeType: type, videoBitsPerSecond: 8e6 });
+  recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+  recorder.onstop = () => {
+    recorder = null; v.loop = true; v.onended = null;
+    $('downloadVideo').textContent = 'Baixar vídeo'; $('downloadVideo').disabled = false; $('play').disabled = false;
+    if (video !== v) return;   // trocou de arquivo no meio: descarta
+    if (v.paused) v.play();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(chunks, { type }));
+    a.download = 'dither-caracteres.' + (type.includes('mp4') ? 'mp4' : 'webm');
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  v.pause(); v.loop = false; v.currentTime = 0;
+  v.onended = () => recorder && recorder.stop();
+  v.onseeked = () => {
+    v.onseeked = null; render();
+    recorder.start();
+    $('downloadVideo').textContent = 'Processando… 0%'; $('downloadVideo').disabled = true; $('play').disabled = true;
+    v.play();
+  };
+}
+$('downloadVideo').onclick = downloadVideo;
+$('pick').onclick = () => $('file').click();
+$('file').onchange = e => loadFile(e.target.files[0]);
+['dragenter','dragover'].forEach(ev => addEventListener(ev, e => { e.preventDefault(); $('stage').classList.add('drop'); }));
+['dragleave','drop'].forEach(ev => addEventListener(ev, e => { e.preventDefault(); $('stage').classList.remove('drop'); }));
+addEventListener('drop', e => e.dataTransfer && loadFile(e.dataTransfer.files[0]));
+
+const PRESETS = ['+', '01', 'x', '·', '@#', '♥', '*', '▪', 'A', '/', 'O RATO ROEU A ROUPA DO REI DE ROMA '];
+PRESETS.forEach(p => {
+  const b = document.createElement('button'); b.className = 'chip';
+  const isText = p.length > 6;
+  b.textContent = isText ? 'Aa texto' : p;
+  b.onclick = () => { $('chars').value = p; if (isText) { $('order').value = 'text'; syncUI(); } render(); };
+  $('chips').appendChild(b);
+});
+
+const sliders = { cell:'cellV', contrast:'contrastV', bright:'brightV' };
+Object.entries(sliders).forEach(([k, v]) => {
+  $(k).addEventListener('input', () => { $(v).textContent = $(k).value; render(); });
+});
+['chars','ramp','invert','colorize','bayer','font','bg','fg'].forEach(k => $(k).addEventListener('input', render));
+function syncUI() {
+  const d = $('mode').value === 'dither';
+  $('g-chars').hidden = !d; $('g-order').hidden = !d; $('g-bayer').hidden = !d; $('g-ramp').hidden = d;
+  $('orderHint').hidden = $('order').value !== 'text';
+  $('fg').disabled = $('bg').disabled = $('colorize').checked;
+}
+['mode','order','colorize'].forEach(k => $(k).addEventListener('input', () => { syncUI(); render(); }));
+
+// Resetar configurações para o início (mantém a imagem carregada)
+const DEFAULTS = {
+  mode:'dither', chars:'+', order:'pattern', ramp:' .:-=+*#%@', cell:'8', contrast:'1.2', bright:'0',
+  bayer:'4', font:$('font').value, bg:'#0007dd', fg:'#ffffff'
+};
+$('reset').onclick = () => {
+  Object.entries(DEFAULTS).forEach(([k, v]) => { $(k).value = v; });
+  $('invert').checked = false; $('colorize').checked = false;
+  Object.entries(sliders).forEach(([k, v]) => { $(v).textContent = $(k).value; });
+  syncUI();
+  render();
+};
+
+// Download do SVG
+$('downloadSvg').onclick = () => {
+  if (!scene) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([toSVG()], { type: 'image/svg+xml' }));
+  a.download = 'dither-caracteres.svg';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+// Download do PNG
+$('download').onclick = () => out.toBlob(blob => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'dither-caracteres.png';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}, 'image/png');
+
+// ---------- Zoom da prévia (só visual; não afeta as exportações) ----------
+// 100% = imagem ajustada à área; roda do mouse / pinça no trackpad aproxima no ponto do cursor; arrastar move
+const view = { z: 1, x: 0, y: 0 };
+const Z_MIN = 0.25, Z_MAX = 16;
+const mainEl = document.querySelector('main');
+function applyView() {
+  if (view.z <= 1) { view.x = 0; view.y = 0; }   // sem zoom, a imagem fica centralizada
+  $('stage').style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+  $('zoomFit').textContent = Math.round(view.z * 100) + '%';
+  mainEl.classList.toggle('pannable', view.z > 1);
+  out.style.imageRendering = view.z >= 2 ? 'pixelated' : '';   // pixels nítidos de perto
+}
+// aproxima mantendo fixo o ponto (cx, cy) da tela; sem ponto, usa o centro
+function zoomTo(z, cx, cy) {
+  z = Math.min(Z_MAX, Math.max(Z_MIN, z));
+  const r = mainEl.getBoundingClientRect();
+  const ox = (cx ?? r.left + r.width / 2) - (r.left + r.width / 2);
+  const oy = (cy ?? r.top + r.height / 2) - (r.top + r.height / 2);
+  view.x = ox - (ox - view.x) * z / view.z;
+  view.y = oy - (oy - view.y) * z / view.z;
+  view.z = z; applyView();
+}
+const STEP = 1.25;
+$('zoomIn').onclick = () => zoomTo(view.z * STEP);
+$('zoomOut').onclick = () => zoomTo(view.z / STEP);
+$('zoomFit').onclick = () => { view.z = 1; applyView(); };
+mainEl.addEventListener('dblclick', e => { if (!e.target.closest('.zoombar')) { view.z = 1; applyView(); } });
+mainEl.addEventListener('wheel', e => {
+  // no celular a página rola normalmente; lá o zoom é pelos botões ou pinça (ctrlKey)
+  if (!e.ctrlKey && !matchMedia('(min-width:761px)').matches) return;
+  e.preventDefault();
+  zoomTo(view.z * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.001)), e.clientX, e.clientY);
+}, { passive: false });
+let drag = null;
+mainEl.addEventListener('pointerdown', e => {
+  if (view.z <= 1 || e.target.closest('.zoombar')) return;
+  drag = { px: e.clientX, py: e.clientY, x: view.x, y: view.y };
+  mainEl.setPointerCapture(e.pointerId); mainEl.classList.add('panning');
+});
+mainEl.addEventListener('pointermove', e => {
+  if (!drag) return;
+  view.x = drag.x + e.clientX - drag.px; view.y = drag.y + e.clientY - drag.py; applyView();
+});
+['pointerup','pointercancel'].forEach(ev => mainEl.addEventListener(ev, () => { drag = null; mainEl.classList.remove('panning'); }));
+addEventListener('keydown', e => {
+  if (e.target.closest?.('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === '+' || e.key === '=') zoomTo(view.z * STEP);
+  else if (e.key === '-') zoomTo(view.z / STEP);
+  else if (e.key === '0') { view.z = 1; applyView(); }
+});
+
+// Começa com a imagem de demonstração
+img = demoImage(); render();
+// redesenha quando as fontes do design system terminarem de carregar
+// (no canvas a fonte só é baixada quando pedida, por isso o load explícito)
+if (document.fonts) Promise.all(['16px Barlow', "16px 'Nanum Myeongjo'"].map(f => document.fonts.load(f))).then(render, () => {});
+</script>
+</body>
+</html>
