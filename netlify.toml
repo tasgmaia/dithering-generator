@@ -1,6 +1,6 @@
-# Site estático, sem build: o Netlify publica a própria raiz do repositório.
+# Site estático: o "build" só copia o index.html para dist/, que é o que o Netlify publica.
+# (Publicar dist/ em vez da raiz evita conflito com configurações do painel e não expõe outros arquivos.)
 # O portfolio (tasguercimaia) exibe este site em /dithering/ via proxy.
-# O comando é explícito (e não vazio) para sobrepor qualquer comando definido no painel do Netlify.
 [build]
-  publish = "."
-  command = "echo 'Sem build: site estático'"
+  command = "mkdir -p dist && cp index.html dist/"
+  publish = "dist"
