@@ -103,13 +103,16 @@
         <option value="pattern">Alternados</option>
         <option value="random">Aleatórios</option>
         <option value="text">Texto contínuo</option>
+        <option value="tone">Por tom (densidade do caractere)</option>
       </select>
       <div class="hint" id="orderHint" hidden>O texto flui pelos pontos acesos, da esquerda para a direita, linha a linha.</div>
+      <div class="hint" id="toneHint" hidden>Cada caractere é medido pela quantidade de tinta que ocupa: os mais cheios vão para os tons mais fortes. Funciona melhor com vários caracteres, como <code>.:-=+*#%@</code>.</div>
     </div>
 
     <div class="group" id="g-ramp" hidden>
       <label for="ramp">Rampa (escuro → claro)</label>
       <input type="text" id="ramp" value=" .:-=+*#%@">
+      <label class="check"><input type="checkbox" id="rampSort"> Ordenar pela densidade do caractere</label>
     </div>
 
     <div class="group">
@@ -250,7 +253,10 @@ function render() {
   const response = $('response').value, sens = +$('sens').value;
   // Array.from respeita emojis e símbolos; quebras de linha viram espaço
   const chars = Array.from($('chars').value.replace(/\s*\n\s*/g, ' '));
-  const ramp = Array.from($('ramp').value);
+  const ramp = $('rampSort').checked ? byDensity(Array.from($('ramp').value), font) : Array.from($('ramp').value);
+  // caracteres sem repetição, do mais vazio ao mais cheio (usado na ordem "Por tom")
+  const byTone = order === 'tone' && chars.length ? byDensity([...new Set(chars)].filter(c => c.trim()), font) : [];
+  if (order === 'tone' && !byTone.length) byTone.push(...chars);
   const bn = +$('bayer').value, B = bayer(bn), bmax = bn * bn;
 
   // gerador pseudoaleatório fixo (a imagem não "pisca" ao mexer nos controles)
@@ -294,7 +300,9 @@ function render() {
           ctx.fillRect(rx, ry, s, s);
           scene.items.push({ rect: true, x: rx, y: ry, s, color, a: al });
         } else {
-          const c = order === 'text' ? chars[textPos++ % chars.length]
+          const tv = response === 'binary' ? b : Math.pow(b, 1 / sens);
+          const c = order === 'tone' ? byTone[Math.min(byTone.length - 1, Math.floor(tv * byTone.length))]
+                  : order === 'text' ? chars[textPos++ % chars.length]
                   : order === 'random' ? chars[Math.floor(rand() * chars.length)]
                   : chars[(x + y) % chars.length];
           if (c.trim()) {
@@ -310,6 +318,27 @@ function render() {
       if (c.trim()) { ctx.fillText(c, px, py); scene.items.push({ c, x: px, y: py, color }); }
     }
   }
+}
+
+// ---------- Densidade dos caracteres ----------
+// Desenha cada caractere num canvas pequeno e mede quanta "tinta" ele ocupa (soma do alfa).
+// Resultado em cache por fonte + caracteres; a cache é limpa quando as fontes web terminam de carregar.
+const densityCache = new Map();
+const dCanvas = document.createElement('canvas'); dCanvas.width = dCanvas.height = 48;
+const dCtx = dCanvas.getContext('2d', { willReadFrequently: true });
+function density(c, font) {
+  const key = font + '\u0000' + c;
+  if (densityCache.has(key)) return densityCache.get(key);
+  dCtx.clearRect(0, 0, 48, 48);
+  dCtx.font = `40px ${font}`; dCtx.textAlign = 'center'; dCtx.textBaseline = 'middle'; dCtx.fillStyle = '#000';
+  dCtx.fillText(c, 24, 26);
+  const d = dCtx.getImageData(0, 0, 48, 48).data;
+  let sum = 0; for (let i = 3; i < d.length; i += 4) sum += d[i];
+  densityCache.set(key, sum);
+  return sum;
+}
+function byDensity(list, font) {
+  return list.map(c => [c, density(c, font)]).sort((a, b) => a[1] - b[1]).map(p => p[0]);
 }
 
 // ---------- SVG ----------
@@ -421,13 +450,14 @@ const sliders = { cell:'cellV', contrast:'contrastV', bright:'brightV', sens:'se
 Object.entries(sliders).forEach(([k, v]) => {
   $(k).addEventListener('input', () => { $(v).textContent = $(k).value; render(); });
 });
-['chars','ramp','invert','colorize','bayer','font','bg','fg'].forEach(k => $(k).addEventListener('input', render));
+['chars','ramp','rampSort','invert','colorize','bayer','font','bg','fg'].forEach(k => $(k).addEventListener('input', render));
 function syncUI() {
   const d = $('mode').value === 'dither';
   const bin = $('response').value === 'binary';
   $('g-chars').hidden = !d; $('g-order').hidden = !d; $('g-ramp').hidden = d;
   $('g-response').hidden = !d; $('g-bayer').hidden = !d || !bin; $('g-sens').hidden = !d || bin; $('responseHint').hidden = bin;
   $('orderHint').hidden = $('order').value !== 'text';
+  $('toneHint').hidden = $('order').value !== 'tone';
   $('fg').disabled = $('bg').disabled = $('colorize').checked;
 }
 ['mode','order','colorize','response'].forEach(k => $(k).addEventListener('input', () => { syncUI(); render(); }));
@@ -439,7 +469,7 @@ const DEFAULTS = {
 };
 $('reset').onclick = () => {
   Object.entries(DEFAULTS).forEach(([k, v]) => { $(k).value = v; });
-  $('invert').checked = false; $('colorize').checked = false;
+  $('invert').checked = false; $('colorize').checked = false; $('rampSort').checked = false;
   Object.entries(sliders).forEach(([k, v]) => { $(v).textContent = $(k).value; });
   syncUI();
   render();
@@ -519,7 +549,7 @@ addEventListener('keydown', e => {
 img = demoImage(); render();
 // redesenha quando as fontes do design system terminarem de carregar
 // (no canvas a fonte só é baixada quando pedida, por isso o load explícito)
-if (document.fonts) Promise.all(['16px Barlow', "16px 'Nanum Myeongjo'"].map(f => document.fonts.load(f))).then(render, () => {});
+if (document.fonts) Promise.all(['16px Barlow', "16px 'Nanum Myeongjo'"].map(f => document.fonts.load(f))).then(() => { densityCache.clear(); render(); }, () => {});
 </script>
 </body>
 </html>
