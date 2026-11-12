@@ -22,6 +22,7 @@ python3 -m http.server 8000
 - Caracteres dos pontos editáveis, com presets e ordem alternada, aleatória ou texto contínuo (uma frase flui pelos pontos)
 - Cor da imagem original nos caracteres e no fundo (escurecido)
 - Tamanho da célula, contraste, brilho, matriz de Bayer (2×2, 4×4, 8×8)
+- Resposta ao tom: liga/desliga (Bayer) ou caracteres que variam de tamanho e/ou opacidade conforme o tom, com ajuste de sensibilidade
 - Fonte, cor de fundo, cor dos caracteres e inversão
 - Botão para resetar as configurações
 - Zoom na prévia (roda do mouse, pinça, botões ou teclas + − 0) e arrastar para mover

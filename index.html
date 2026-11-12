@@ -124,6 +124,20 @@
       <label for="bright">Brilho</label>
       <div class="row"><input type="range" id="bright" min="-0.5" max="0.5" step="0.01" value="0"><span class="val" id="brightV">0</span></div>
     </div>
+    <div class="group" id="g-response">
+      <label for="response">Resposta ao tom</label>
+      <select id="response">
+        <option value="binary">Liga/desliga (dithering)</option>
+        <option value="size">Tamanho</option>
+        <option value="alpha">Opacidade</option>
+        <option value="both">Tamanho + opacidade</option>
+      </select>
+      <div class="hint" id="responseHint" hidden>Cada caractere cresce e/ou fica mais forte conforme o tom da imagem naquele ponto.</div>
+    </div>
+    <div class="group" id="g-sens" hidden>
+      <label for="sens">Sensibilidade aos tons</label>
+      <div class="row"><input type="range" id="sens" min="0.3" max="3" step="0.05" value="1"><span class="val" id="sensV">1</span></div>
+    </div>
     <div class="group" id="g-bayer">
       <label for="bayer">Matriz de Bayer</label>
       <select id="bayer"><option value="2">2×2</option><option value="4" selected>4×4</option><option value="8">8×8</option></select>
@@ -233,6 +247,7 @@ function render() {
 
   const contrast = +$('contrast').value, shift = +$('bright').value, inv = $('invert').checked;
   const mode = $('mode').value, order = $('order').value, colorize = $('colorize').checked;
+  const response = $('response').value, sens = +$('sens').value;
   // Array.from respeita emojis e símbolos; quebras de linha viram espaço
   const chars = Array.from($('chars').value.replace(/\s*\n\s*/g, ' '));
   const ramp = Array.from($('ramp').value);
@@ -262,18 +277,33 @@ function render() {
     }
 
     if (mode === 'dither') {
-      const t = (B[y % bn][x % bn] + 0.5) / bmax;
-      if (b > t) {
+      // binário: Bayer decide se o ponto acende; nos outros modos o tom vira tamanho e/ou opacidade
+      let on, sc = 1, al = 1;
+      if (response === 'binary') on = b > (B[y % bn][x % bn] + 0.5) / bmax;
+      else {
+        const v = Math.pow(b, 1 / sens);
+        on = v > 0.04;
+        if (response !== 'alpha') sc = 0.15 + 0.85 * v;
+        if (response !== 'size') al = 0.08 + 0.92 * v;
+      }
+      if (on) {
+        ctx.globalAlpha = al;
         if (!chars.length) {
-          const g = Math.max(1, Math.round(cell * 0.18));
-          ctx.fillRect(x*cell+g/2, y*cell+g/2, cell-g, cell-g);
-          scene.items.push({ rect: true, x: x*cell+g/2, y: y*cell+g/2, s: cell-g, color });
+          const g = Math.max(1, Math.round(cell * 0.18)), s = (cell - g) * sc;
+          const rx = x*cell + (cell - s) / 2, ry = y*cell + (cell - s) / 2;
+          ctx.fillRect(rx, ry, s, s);
+          scene.items.push({ rect: true, x: rx, y: ry, s, color, a: al });
         } else {
           const c = order === 'text' ? chars[textPos++ % chars.length]
                   : order === 'random' ? chars[Math.floor(rand() * chars.length)]
                   : chars[(x + y) % chars.length];
-          if (c.trim()) { ctx.fillText(c, px, py); scene.items.push({ c, x: px, y: py, color }); }
+          if (c.trim()) {
+            if (sc !== 1) { ctx.setTransform(sc, 0, 0, sc, px, py); ctx.fillText(c, 0, 0); ctx.setTransform(1, 0, 0, 1, 0, 0); }
+            else ctx.fillText(c, px, py);
+            scene.items.push({ c, x: px, y: py, color, sc, a: al });
+          }
         }
+        ctx.globalAlpha = 1;
       }
     } else if (ramp.length) {
       const c = ramp[Math.min(ramp.length - 1, Math.floor(b * ramp.length))];
@@ -288,9 +318,11 @@ function toSVG() {
   const esc = s => s.replace(/[&<>"']/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m]));
   const n = v => +v.toFixed(2);
   const fill = c => c === fg ? '' : ` fill="${c}"`;
+  const op = a => a == null || a >= 1 ? '' : ` fill-opacity="${n(a)}"`;
+  const fs = sc => sc == null || sc === 1 ? '' : ` font-size="${n(fontSize * sc)}"`;
   const body = items.map(it => it.rect
-    ? `<rect x="${n(it.x)}" y="${n(it.y)}" width="${n(it.s)}" height="${n(it.s)}"${fill(it.color)}/>`
-    : `<text x="${n(it.x)}" y="${n(it.y)}"${fill(it.color)}>${esc(it.c)}</text>`).join('\n');
+    ? `<rect x="${n(it.x)}" y="${n(it.y)}" width="${n(it.s)}" height="${n(it.s)}"${fill(it.color)}${op(it.a)}/>`
+    : `<text x="${n(it.x)}" y="${n(it.y)}"${fill(it.color)}${fs(it.sc)}${op(it.a)}>${esc(it.c)}</text>`).join('\n');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <rect width="100%" height="100%" fill="${bg}"/>
 <g fill="${fg}" font-family="${esc(font)}" font-size="${fontSize}" text-anchor="middle" dominant-baseline="central">
@@ -385,23 +417,25 @@ PRESETS.forEach(p => {
   $('chips').appendChild(b);
 });
 
-const sliders = { cell:'cellV', contrast:'contrastV', bright:'brightV' };
+const sliders = { cell:'cellV', contrast:'contrastV', bright:'brightV', sens:'sensV' };
 Object.entries(sliders).forEach(([k, v]) => {
   $(k).addEventListener('input', () => { $(v).textContent = $(k).value; render(); });
 });
 ['chars','ramp','invert','colorize','bayer','font','bg','fg'].forEach(k => $(k).addEventListener('input', render));
 function syncUI() {
   const d = $('mode').value === 'dither';
-  $('g-chars').hidden = !d; $('g-order').hidden = !d; $('g-bayer').hidden = !d; $('g-ramp').hidden = d;
+  const bin = $('response').value === 'binary';
+  $('g-chars').hidden = !d; $('g-order').hidden = !d; $('g-ramp').hidden = d;
+  $('g-response').hidden = !d; $('g-bayer').hidden = !d || !bin; $('g-sens').hidden = !d || bin; $('responseHint').hidden = bin;
   $('orderHint').hidden = $('order').value !== 'text';
   $('fg').disabled = $('bg').disabled = $('colorize').checked;
 }
-['mode','order','colorize'].forEach(k => $(k).addEventListener('input', () => { syncUI(); render(); }));
+['mode','order','colorize','response'].forEach(k => $(k).addEventListener('input', () => { syncUI(); render(); }));
 
 // Resetar configurações para o início (mantém a imagem carregada)
 const DEFAULTS = {
   mode:'dither', chars:'+', order:'pattern', ramp:' .:-=+*#%@', cell:'8', contrast:'1.2', bright:'0',
-  bayer:'4', font:$('font').value, bg:'#0007dd', fg:'#ffffff'
+  response:'binary', sens:'1', bayer:'4', font:$('font').value, bg:'#0007dd', fg:'#ffffff'
 };
 $('reset').onclick = () => {
   Object.entries(DEFAULTS).forEach(([k, v]) => { $(k).value = v; });
