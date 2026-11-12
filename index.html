@@ -255,8 +255,9 @@ function render() {
   const chars = Array.from($('chars').value.replace(/\s*\n\s*/g, ' '));
   const ramp = $('rampSort').checked ? byDensity(Array.from($('ramp').value), font) : Array.from($('ramp').value);
   // caracteres sem repetição, do mais vazio ao mais cheio (usado na ordem "Por tom")
-  const byTone = order === 'tone' && chars.length ? byDensity([...new Set(chars)].filter(c => c.trim()), font) : [];
-  if (order === 'tone' && !byTone.length) byTone.push(...chars);
+  // cada um com a densidade relativa (0–1) medida em relação ao mais cheio
+  const tone = order === 'tone' && chars.some(c => c.trim());
+  const byTone = tone ? toneTable([...new Set(chars)].filter(c => c.trim()), font) : null;
   const bn = +$('bayer').value, B = bayer(bn), bmax = bn * bn;
 
   // gerador pseudoaleatório fixo (a imagem não "pisca" ao mexer nos controles)
@@ -270,8 +271,8 @@ function render() {
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
     const i = (y * cols + x) * 4;
     let b = (0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]) / 255;
+    if (inv) b = 1 - b;   // inverte antes: assim brilho/contraste agem sempre no sentido de "mais caractere"
     b = Math.min(1, Math.max(0, (b - 0.5) * contrast + 0.5 + shift));
-    if (inv) b = 1 - b;
     const px = x * cell + cell / 2, py = y * cell + cell / 2 + cell * 0.04;
     const color = colorize ? hex(data[i], data[i+1], data[i+2]) : fg;
     if (colorize) {
@@ -284,8 +285,9 @@ function render() {
 
     if (mode === 'dither') {
       // binário: Bayer decide se o ponto acende; nos outros modos o tom vira tamanho e/ou opacidade
+      // na ordem "Por tom" o próprio caractere carrega o tom: sem Bayer, toda célula pode ter um
       let on, sc = 1, al = 1;
-      if (response === 'binary') on = b > (B[y % bn][x % bn] + 0.5) / bmax;
+      if (response === 'binary') on = tone ? true : b > (B[y % bn][x % bn] + 0.5) / bmax;
       else {
         const v = Math.pow(b, 1 / sens);
         on = v > 0.04;
@@ -300,8 +302,7 @@ function render() {
           ctx.fillRect(rx, ry, s, s);
           scene.items.push({ rect: true, x: rx, y: ry, s, color, a: al });
         } else {
-          const tv = response === 'binary' ? b : Math.pow(b, 1 / sens);
-          const c = order === 'tone' ? byTone[Math.min(byTone.length - 1, Math.floor(tv * byTone.length))]
+          const c = tone ? pickByTone(byTone, Math.pow(b, 1 / sens))
                   : order === 'text' ? chars[textPos++ % chars.length]
                   : order === 'random' ? chars[Math.floor(rand() * chars.length)]
                   : chars[(x + y) % chars.length];
@@ -339,6 +340,20 @@ function density(c, font) {
 }
 function byDensity(list, font) {
   return list.map(c => [c, density(c, font)]).sort((a, b) => a[1] - b[1]).map(p => p[0]);
+}
+// tabela [{c, n}] do mais vazio ao mais cheio, n = densidade / densidade do mais cheio
+function toneTable(list, font) {
+  const t = list.map(c => ({ c, n: density(c, font) })).filter(e => e.n > 0).sort((a, b) => a.n - b.n);
+  const max = t.length ? t[t.length - 1].n : 1;
+  t.forEach(e => e.n /= max);
+  return t;
+}
+// caractere cuja densidade mais se aproxima do tom v (0–1); abaixo de metade do mais leve, nada
+function pickByTone(t, v) {
+  if (!t.length || v < t[0].n / 2) return ' ';
+  let best = t[0];
+  for (const e of t) if (Math.abs(e.n - v) < Math.abs(best.n - v)) best = e;
+  return best.c;
 }
 
 // ---------- SVG ----------
@@ -455,7 +470,8 @@ function syncUI() {
   const d = $('mode').value === 'dither';
   const bin = $('response').value === 'binary';
   $('g-chars').hidden = !d; $('g-order').hidden = !d; $('g-ramp').hidden = d;
-  $('g-response').hidden = !d; $('g-bayer').hidden = !d || !bin; $('g-sens').hidden = !d || bin; $('responseHint').hidden = bin;
+  const tone = $('order').value === 'tone';
+  $('g-response').hidden = !d; $('g-bayer').hidden = !d || !bin || tone; $('g-sens').hidden = !d || (bin && !tone); $('responseHint').hidden = bin;
   $('orderHint').hidden = $('order').value !== 'text';
   $('toneHint').hidden = $('order').value !== 'tone';
   $('fg').disabled = $('bg').disabled = $('colorize').checked;
