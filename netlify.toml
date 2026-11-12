@@ -1,6 +1,6 @@
-# Site estático: o "build" só copia o index.html para dist/, que é o que o Netlify publica.
+# Site estático: o "build" só copia o index.html e o favicon para dist/, que é o que o Netlify publica.
 # (Publicar dist/ em vez da raiz evita conflito com configurações do painel e não expõe outros arquivos.)
 # O portfolio (tasguercimaia) exibe este site em /dithering/ via proxy.
 [build]
-  command = "mkdir -p dist && cp index.html dist/"
+  command = "mkdir -p dist && cp index.html favicon.png dist/"
   publish = "dist"
