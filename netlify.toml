@@ -1,0 +1,5 @@
+# Site estático, sem build: o Netlify publica a própria raiz do repositório.
+# O portfolio (tasguercimaia) exibe este site em /dithering/ via proxy.
+[build]
+  publish = "."
+  command = ""
