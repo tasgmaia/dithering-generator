@@ -106,7 +106,7 @@
         <option value="tone">Por tom (densidade do caractere)</option>
       </select>
       <div class="hint" id="orderHint" hidden>O texto flui pelos pontos acesos, da esquerda para a direita, linha a linha.</div>
-      <div class="hint" id="toneHint" hidden>Cada caractere é medido pela quantidade de tinta que ocupa: os mais cheios vão para os tons mais fortes. Funciona melhor com vários caracteres, como <code>.:-=+*#%@</code>.</div>
+      <div class="hint" id="toneHint" hidden>Cada caractere é medido pela quantidade de tinta que ocupa: os mais cheios vão para os tons mais fortes. Entre dois tons, a matriz de Bayer mistura os dois caracteres vizinhos para não formar faixas. Funciona melhor com vários caracteres, como <code>.:-=+*#%@</code>.</div>
     </div>
 
     <div class="group" id="g-ramp" hidden>
@@ -285,7 +285,7 @@ function render() {
 
     if (mode === 'dither') {
       // binário: Bayer decide se o ponto acende; nos outros modos o tom vira tamanho e/ou opacidade
-      // na ordem "Por tom" o próprio caractere carrega o tom: sem Bayer, toda célula pode ter um
+      // na ordem "Por tom" toda célula pode ter caractere; o Bayer só mistura os dois caracteres de tom mais próximo
       let on, sc = 1, al = 1;
       if (response === 'binary') on = tone ? true : b > (B[y % bn][x % bn] + 0.5) / bmax;
       else {
@@ -302,7 +302,7 @@ function render() {
           ctx.fillRect(rx, ry, s, s);
           scene.items.push({ rect: true, x: rx, y: ry, s, color, a: al });
         } else {
-          const c = tone ? pickByTone(byTone, Math.pow(b, 1 / sens))
+          const c = tone ? pickByTone(byTone, Math.pow(b, 1 / sens), (B[y % bn][x % bn] + 0.5) / bmax)
                   : order === 'text' ? chars[textPos++ % chars.length]
                   : order === 'random' ? chars[Math.floor(rand() * chars.length)]
                   : chars[(x + y) % chars.length];
@@ -348,12 +348,15 @@ function toneTable(list, font) {
   t.forEach(e => e.n /= max);
   return t;
 }
-// caractere cuja densidade mais se aproxima do tom v (0–1); abaixo de metade do mais leve, nada
-function pickByTone(t, v) {
-  if (!t.length || v < t[0].n / 2) return ' ';
-  let best = t[0];
-  for (const e of t) if (Math.abs(e.n - v) < Math.abs(best.n - v)) best = e;
-  return best.c;
+// caractere para o tom v (0–1): fica entre os dois níveis vizinhos (o vazio conta como nível 0)
+// e a matriz de Bayer (limiar th) escolhe um dos dois na proporção certa. Sem isso, um degradê
+// suave vira faixas largas do mesmo caractere (imagem "listrada").
+function pickByTone(t, v, th) {
+  if (!t.length) return ' ';
+  let lo = { c: ' ', n: 0 }, hi = t[0];
+  for (let k = 0; k < t.length && t[k].n < v; k++) { lo = t[k]; hi = t[k + 1] || t[k]; }
+  if (hi === lo) return lo.c;
+  return (v - lo.n) / (hi.n - lo.n) > th ? hi.c : lo.c;
 }
 
 // ---------- SVG ----------
@@ -471,7 +474,7 @@ function syncUI() {
   const bin = $('response').value === 'binary';
   $('g-chars').hidden = !d; $('g-order').hidden = !d; $('g-ramp').hidden = d;
   const tone = $('order').value === 'tone';
-  $('g-response').hidden = !d; $('g-bayer').hidden = !d || !bin || tone; $('g-sens').hidden = !d || (bin && !tone); $('responseHint').hidden = bin;
+  $('g-response').hidden = !d; $('g-bayer').hidden = !d || (!bin && !tone); $('g-sens').hidden = !d || (bin && !tone); $('responseHint').hidden = bin;
   $('orderHint').hidden = $('order').value !== 'text';
   $('toneHint').hidden = $('order').value !== 'tone';
   $('fg').disabled = $('bg').disabled = $('colorize').checked;
